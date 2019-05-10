@@ -177,10 +177,11 @@ function episodeloop(m::MatcherEnv, select_action, remember_reward; nsteps=100)
         #println(state)
     end
     endtime = time()
-    println(endtime - starttime)
+    #println(endtime - starttime)
     episodereward
 end
 
+using Printf: @printf
 function trainloop(m::MatcherEnv, select_action, remember_reward, finish_episode; nsteps=100, nepisodes=10)
     runningreward = 0.0
     eprewards = Float32[]
@@ -192,9 +193,12 @@ function trainloop(m::MatcherEnv, select_action, remember_reward, finish_episode
         runningreward = 0.05 * epreward + (1 - 0.05) * runningreward
         push!(eprewards, epreward)
         push!(runningrewards, runningreward)
+        if ep % 10 == 0
+            @printf("Episode %d current reward %f running reward %f\n", ep, epreward, runningreward)
+        end
     end
     eprewards, runningrewards
 end
 
 plotweights(agent) = heatmap(collect(params(agent.nnmodel[1]))[1].data)
-(eprewards, runningrewards) = trainloop(matcher, select_action, remember_reward, finish_episode; nsteps=10, nepisodes=100)
+(eprewards, runningrewards) = trainloop(matcher, select_action, remember_reward, finish_episode; nsteps=10, nepisodes=1000)
