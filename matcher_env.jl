@@ -10,35 +10,53 @@ feasible_sets = collect(Int64.(convert(Matrix, CSV.File("/Users/curry/src/julia_
 arrival_means = Float64[32.3250498, 21.26307068, 9.998228937, 2.540044521, 14.54586926, 9.568116614, 4.499078324, 1.142988355, 4.531473682, 2.980754732, 1.401597571, 0.356075086, 0.548292189, 0.360660715, 0.169588318, 0.043083818]
 departure_means = Float64[14.39983629, 7.932098763, 4.343646604, 0.73473771, 6.479746736, 3.569345515, 1.954586798, 0.330622806, 2.01863507, 1.111957971, 0.608912295, 0.102998901, 0.24424766, 0.134542957, 0.073676221, 0.0124625]
 
+struct SetPackMatcher
+    constraintparams::Array{ParameterRef}
+    solnvars::Array{VariableRef}
+    feasible_sets::Array{Float32, 2}
+    optmodel::Model
+    function SetPackMatcher(feasible_sets::Array{Int64, 2})
+        n_types = size(feasible_sets, 1)
+        n_sets = size(feasible_sets, 2)
+
+        model = ModelWithParams(with_optimizer(GLPK.Optimizer))
+        #model = ModelWithParams(with_optimizer(Gurobi.Optimizer; OutputFlag=0))
+
+        @variable(model, x[1:n_sets] >= 0, Int)
+
+        row_sums = @expression(model, feasible_sets * x)
+
+        constraint_vec = rand(0:2, 16)
+        cons_rhs = add_parameters(model, constraint_vec)
+        conses = [@constraint(model, row_sums[k] <= cons_rhs[k]) for k=1:n_types]
+        @objective(model, Max, sum(row_sums))
+        new(cons_rhs, x, feasible_sets, model)
+    end
+end
+
+
+function perform_match(s::SetPackMatcher, state)
+    fix.(s.constraintparams, state)
+    optimize!(s.optmodel)
+    value.(s.solnvars)
+end
+
 abstract type MatcherEnv end
 
 mutable struct BloodTypeMatcherEnv <: MatcherEnv
     state::Array{Float32}
-    constraintparams::Array{ParameterRef}
-    solnvars::Array{VariableRef}
-    feasible_sets::Array{Float32,2}
     daily_arrival_dists::Array{Poisson}
     daily_departure_dists::Array{Poisson}
-    optmodel::Model
+    matcher::SetPackMatcher
 end
 
 function BloodTypeMatcherEnv(feasible_sets::Array{Int64, 2}, daily_arrival_means, daily_departure_means)
     n_types = size(feasible_sets, 1)
     n_sets = size(feasible_sets, 2)
 
-    model = ModelWithParams(with_optimizer(GLPK.Optimizer))
-    #model = ModelWithParams(with_optimizer(Gurobi.Optimizer; OutputFlag=0))
-
-    @variable(model, x[1:n_sets] >= 0, Int)
-
-    row_sums = @expression(model, feasible_sets * x)
-
-    constraint_vec = rand(0:2, 16)
-    cons_rhs = add_parameters(model, constraint_vec)
-    conses = [@constraint(model, row_sums[k] <= cons_rhs[k]) for k=1:n_types]
-    @objective(model, Max, sum(row_sums))
     initstate = zeros(Float32, n_types)
-    BloodTypeMatcherEnv(initstate, cons_rhs, x, feasible_sets, Poisson.(daily_arrival_means), Poisson.(daily_departure_means), model)
+    matcher = SetPackMatcher(feasible_sets)
+    BloodTypeMatcherEnv(initstate, Poisson.(daily_arrival_means), Poisson.(daily_departure_means), matcher)
 end
 
 state(m::BloodTypeMatcherEnv) = m.state
@@ -49,9 +67,7 @@ function reset!(m::BloodTypeMatcherEnv)
 end
 
 function _perform_match(m::BloodTypeMatcherEnv)
-    fix.(m.constraintparams, m.state)
-    optimize!(m.optmodel)
-    value.(m.solnvars)
+    perform_match(m.matcher, m.state)
 end
 
 function _arrive_and_depart!(m::BloodTypeMatcherEnv)
@@ -65,7 +81,7 @@ function _arrive_and_depart!(m::BloodTypeMatcherEnv)
 end
 
 function _run_match!(m::BloodTypeMatcherEnv, match)
-    total_match = m.feasible_sets * match
+    total_match = m.matcher.feasible_sets * match
     match_card = sum(total_match)
     m.state .-= total_match
     match_card
@@ -169,7 +185,6 @@ function episodeloop(m::MatcherEnv, select_action, remember_reward; nsteps=100)
 end
 
 using Printf: @printf
-import BenchmarkTools.@benchmark
 function trainloop(m::MatcherEnv, select_action, remember_reward, finish_episode; nsteps=100, nepisodes=10)
     runningreward = 0.0
     eprewards = Float32[]
@@ -190,4 +205,4 @@ end
 
 agent = MLPAgent(Chain(Dense(16, 128, relu), Dense(128, 2), softmax))
 plotweights(agent) = heatmap(collect(params(agent.nnmodel[1]))[1].data)
-(eprewards, runningrewards) = trainloop(matcher, select_action, remember_reward, finish_episode; nsteps=50, nepisodes=3000)
+(eprewards, runningrewards) = trainloop(matcher, select_action, remember_reward, finish_episode; nsteps=50, nepisodes=30)
