@@ -26,7 +26,7 @@ struct SetPackMatcher
 
         row_sums = @expression(model, feasible_sets * x)
 
-        constraint_vec = rand(0:2, 16)
+        constraint_vec = rand(0:2, n_types)
         cons_rhs = add_parameters(model, constraint_vec)
         conses = [@constraint(model, row_sums[k] <= cons_rhs[k]) for k=1:n_types]
         @objective(model, Max, sum(row_sums))
@@ -61,6 +61,29 @@ end
 
 state(m::BloodTypeMatcherEnv) = m.state
 
+mutable struct ToyMatcherEnv <: MatcherEnv
+    state::Array{Float32}
+    matcher::SetPackMatcher
+    time_step::Int64
+end
+
+state(m::ToyMatcherEnv) = m.state
+
+function ToyMatcherEnv()
+    n_types = 5
+    n_sets = 2
+    feasible_sets = [1 1; 1 1; 1 0 ; 1 0 ; 1 0]
+    matcher = SetPackMatcher(feasible_sets)
+    initstate = zeros(Float32, n_types)
+    ToyMatcherEnv(initstate, matcher, 0)
+end
+
+
+function reset!(m::ToyMatcherEnv)
+    m.state .= zeros(size(m.state))
+    m.state
+end
+
 function reset!(m::BloodTypeMatcherEnv)
     m.state .= zeros(size(m.state))
     m.state
@@ -68,6 +91,24 @@ end
 
 function _perform_match(m::BloodTypeMatcherEnv)
     perform_match(m.matcher, m.state)
+end
+
+function _perform_match(m::ToyMatcherEnv)
+    perform_match(m.matcher, m.state)
+end
+
+function _arrive_and_depart!(m::ToyMatcherEnv)
+    # arrive and depart here
+    if m.time_step == 0
+        m.state = [1.0, 1.0, 0.0, 0.0, 0.0]
+        m.time_step = 1
+    elseif m.time_step == 1
+        m.state .+= [0.0, 0.0, 1.0, 1.0, 1.0]
+        m.time_step = 2
+    elseif m.time_step == 2
+        m.state .= [0.0, 0.0, 0.0, 0.0, 0.0]
+        m.time_step = 0
+    end
 end
 
 function _arrive_and_depart!(m::BloodTypeMatcherEnv)
@@ -81,6 +122,13 @@ function _arrive_and_depart!(m::BloodTypeMatcherEnv)
 end
 
 function _run_match!(m::BloodTypeMatcherEnv, match)
+    total_match = m.matcher.feasible_sets * match
+    match_card = sum(total_match)
+    m.state .-= total_match
+    match_card
+end
+
+function _run_match!(m::ToyMatcherEnv, match)
     total_match = m.matcher.feasible_sets * match
     match_card = sum(total_match)
     m.state .-= total_match
@@ -115,7 +163,7 @@ function episodeloop(m::MatcherEnv, p; nsteps=100)
 end
 
 matcher = BloodTypeMatcherEnv(feasible_sets, arrival_means, departure_means)
-
+matcher = ToyMatcherEnv()
 using Distributions
 import Flux.params
 using Flux.Tracker: update!
@@ -203,6 +251,8 @@ function trainloop(m::MatcherEnv, select_action, remember_reward, finish_episode
     eprewards, runningrewards
 end
 
-agent = MLPAgent(Chain(Dense(16, 128, relu), Dense(128, 2), softmax))
+env = ToyMatcherEnv()
+
+agent = MLPAgent(Chain(Dense(5, 128, relu), Dense(128, 2), softmax))
 plotweights(agent) = heatmap(collect(params(agent.nnmodel[1]))[1].data)
-(eprewards, runningrewards) = trainloop(matcher, select_action, remember_reward, finish_episode; nsteps=50, nepisodes=30)
+(eprewards, runningrewards) = trainloop(env, select_action, remember_reward, finish_episode; nsteps=10, nepisodes=30)
