@@ -100,22 +100,6 @@ end
 
 matcher = BloodTypeMatcherEnv(feasible_sets, arrival_means, departure_means)
 
-function trainloop(m::MatcherEnv, p; nsteps=100, nepisodes=10)
-    runningreward = 0.0
-    eprewards = Float32[]
-    runningrewards = Float32[]
-
-    for ep=1:nepisodes
-        epreward = episodeloop(m, p; nsteps=nsteps)
-        runningreward = 0.05 * epreward + (1 - 0.05) * runningreward
-        push!(eprewards, epreward)
-        push!(runningrewards, runningreward)
-    end
-    eprewards, runningrewards
-end
-
-(eprewards, runningrewards) = trainloop(matcher, greedypolicy; nsteps=10, nepisodes=100)
-
 using Distributions
 import Flux.params
 using Flux.Tracker: update!
@@ -129,7 +113,6 @@ mutable struct MLPAgent
 end
 
 MLPAgent(model) = MLPAgent(model, ADAM(0.1), Float32[], Tracker.TrackedReal[])
-agent = MLPAgent(Chain(Dense(16, 128, relu), Dense(128, 2), softmax))
 
 function Distributions.isprobvec(p::TrackedArray)
     sum(p).data ≈ 1.0
@@ -205,5 +188,6 @@ function trainloop(m::MatcherEnv, select_action, remember_reward, finish_episode
     eprewards, runningrewards
 end
 
+agent = MLPAgent(Chain(Dense(16, 128, relu), Dense(128, 2), softmax))
 plotweights(agent) = heatmap(collect(params(agent.nnmodel[1]))[1].data)
-(eprewards, runningrewards) = trainloop(matcher, select_action, remember_reward, finish_episode; nsteps=50, nepisodes=100)
+(eprewards, runningrewards) = trainloop(matcher, select_action, remember_reward, finish_episode; nsteps=50, nepisodes=3000)
