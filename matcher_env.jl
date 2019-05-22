@@ -1,7 +1,7 @@
 using JuMP
 using CSV
 using DataFrames
-using Gurobi
+#using Gurobi
 using GLPK
 using ParameterJuMP
 using Distributions
@@ -10,9 +10,11 @@ feasible_sets = collect(Int64.(convert(Matrix, CSV.File("/Users/curry/src/julia_
 arrival_means = Float64[32.3250498, 21.26307068, 9.998228937, 2.540044521, 14.54586926, 9.568116614, 4.499078324, 1.142988355, 4.531473682, 2.980754732, 1.401597571, 0.356075086, 0.548292189, 0.360660715, 0.169588318, 0.043083818]
 departure_means = Float64[14.39983629, 7.932098763, 4.343646604, 0.73473771, 6.479746736, 3.569345515, 1.954586798, 0.330622806, 2.01863507, 1.111957971, 0.608912295, 0.102998901, 0.24424766, 0.134542957, 0.073676221, 0.0124625]
 
-mutable struct MatcherEnv
+abstract type MatcherEnv end
+
+mutable struct BloodTypeMatcherEnv <: MatcherEnv
     state::Array{Float32}
-    constraintparams::Array{Parameter}
+    constraintparams::Array{ParameterRef}
     solnvars::Array{VariableRef}
     feasible_sets::Array{Float32,2}
     daily_arrival_dists::Array{Poisson}
@@ -20,7 +22,7 @@ mutable struct MatcherEnv
     optmodel::Model
 end
 
-function MatcherEnv(feasible_sets::Array{Int64, 2}, daily_arrival_means, daily_departure_means)
+function BloodTypeMatcherEnv(feasible_sets::Array{Int64, 2}, daily_arrival_means, daily_departure_means)
     n_types = size(feasible_sets, 1)
     n_sets = size(feasible_sets, 2)
 
@@ -32,25 +34,27 @@ function MatcherEnv(feasible_sets::Array{Int64, 2}, daily_arrival_means, daily_d
     row_sums = @expression(model, feasible_sets * x)
 
     constraint_vec = rand(0:2, 16)
-    cons_rhs = Parameters(model, constraint_vec)
+    cons_rhs = add_parameters(model, constraint_vec)
     conses = [@constraint(model, row_sums[k] <= cons_rhs[k]) for k=1:n_types]
     @objective(model, Max, sum(row_sums))
     initstate = zeros(Float32, n_types)
-    MatcherEnv(initstate, cons_rhs, x, feasible_sets, Poisson.(daily_arrival_means), Poisson.(daily_departure_means), model)
+    BloodTypeMatcherEnv(initstate, cons_rhs, x, feasible_sets, Poisson.(daily_arrival_means), Poisson.(daily_departure_means), model)
 end
 
-function reset!(m::MatcherEnv)
+state(m::BloodTypeMatcherEnv) = m.state
+
+function reset!(m::BloodTypeMatcherEnv)
     m.state .= zeros(size(m.state))
     m.state
 end
 
-function _perform_match(m::MatcherEnv)
+function _perform_match(m::BloodTypeMatcherEnv)
     fix.(m.constraintparams, m.state)
     optimize!(m.optmodel)
     value.(m.solnvars)
 end
 
-function _arrive_and_depart!(m::MatcherEnv)
+function _arrive_and_depart!(m::BloodTypeMatcherEnv)
     for i=1:length(m.state)
         m.state[i] += rand(m.daily_arrival_dists[i])
         m.state[i] -= rand(m.daily_departure_dists[i])
@@ -60,7 +64,7 @@ function _arrive_and_depart!(m::MatcherEnv)
     end
 end
 
-function _run_match!(m::MatcherEnv, match)
+function _run_match!(m::BloodTypeMatcherEnv, match)
     total_match = m.feasible_sets * match
     match_card = sum(total_match)
     m.state .-= total_match
@@ -74,7 +78,7 @@ function step!(m::MatcherEnv, action)
         reward = _run_match!(m, soln)
     end
     _arrive_and_depart!(m)
-    (m.state, reward, false)
+    (state(m), reward, false)
 end
 
 greedypolicy(state) = 1
@@ -94,7 +98,7 @@ function episodeloop(m::MatcherEnv, p; nsteps=100)
     episodereward
 end
 
-matcher = MatcherEnv(feasible_sets, arrival_means, departure_means)
+matcher = BloodTypeMatcherEnv(feasible_sets, arrival_means, departure_means)
 
 function trainloop(m::MatcherEnv, p; nsteps=100, nepisodes=10)
     runningreward = 0.0
@@ -113,7 +117,7 @@ end
 (eprewards, runningrewards) = trainloop(matcher, greedypolicy; nsteps=10, nepisodes=100)
 
 using Distributions
-using Flux: params
+import Flux.params
 using Flux.Tracker: update!
 using Flux
 
@@ -182,6 +186,7 @@ function episodeloop(m::MatcherEnv, select_action, remember_reward; nsteps=100)
 end
 
 using Printf: @printf
+import BenchmarkTools.@benchmark
 function trainloop(m::MatcherEnv, select_action, remember_reward, finish_episode; nsteps=100, nepisodes=10)
     runningreward = 0.0
     eprewards = Float32[]
@@ -201,4 +206,4 @@ function trainloop(m::MatcherEnv, select_action, remember_reward, finish_episode
 end
 
 plotweights(agent) = heatmap(collect(params(agent.nnmodel[1]))[1].data)
-(eprewards, runningrewards) = trainloop(matcher, select_action, remember_reward, finish_episode; nsteps=10, nepisodes=1000)
+(eprewards, runningrewards) = trainloop(matcher, select_action, remember_reward, finish_episode; nsteps=50, nepisodes=100)
