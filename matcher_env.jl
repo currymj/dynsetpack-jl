@@ -146,13 +146,13 @@ function step!(m::MatcherEnv, action)
 end
 
 greedypolicy(state) = 1
-function episodeloop(m::MatcherEnv, p; nsteps=100)
+function greedy_episodeloop(m::MatcherEnv; nsteps=100)
     starttime = time()
     state = reset!(m)
     episodereward = 0.0
     reward = 0.0
     for step=1:nsteps
-        action = p(state)
+        action = greedypolicy(state)
         state, reward, _ = step!(m, action)
         episodereward += reward
         #println(state)
@@ -176,7 +176,7 @@ mutable struct MLPAgent
     saved_log_probs::Array{Tracker.TrackedReal}
 end
 
-MLPAgent(model) = MLPAgent(model, ADAM(0.1), Float32[], Tracker.TrackedReal[])
+MLPAgent(model) = MLPAgent(model, ADAM(0.01), Float32[], Tracker.TrackedReal[])
 
 function Distributions.isprobvec(p::TrackedArray)
     sum(p).data ≈ 1.0
@@ -253,6 +253,6 @@ end
 
 env = ToyMatcherEnv()
 
-agent = MLPAgent(Chain(Dense(5, 128, relu), Dense(128, 2), softmax))
+agent = MLPAgent(Chain(Dense(5, 128, relu), Dropout(0.6), Dense(128, 2), softmax))
 plotweights(agent) = heatmap(collect(params(agent.nnmodel[1]))[1].data)
-(eprewards, runningrewards) = trainloop(env, select_action, remember_reward, finish_episode; nsteps=10, nepisodes=30)
+(eprewards, runningrewards) = trainloop(env, select_action, remember_reward, finish_episode; nsteps=20, nepisodes=100)
