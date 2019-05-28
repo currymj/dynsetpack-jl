@@ -34,7 +34,6 @@ struct SetPackMatcher
     end
 end
 
-
 function perform_match(s::SetPackMatcher, state)
     fix.(s.constraintparams, state)
     optimize!(s.optmodel)
@@ -80,6 +79,7 @@ end
 
 
 function reset!(m::ToyMatcherEnv)
+    m.time_step = 0
     m.state .= zeros(size(m.state))
     m.state
 end
@@ -168,6 +168,7 @@ using Distributions
 import Flux.params
 using Flux.Tracker: update!
 using Flux
+using Flux: testmode!
 
 mutable struct MLPAgent
     nnmodel::Chain
@@ -184,7 +185,7 @@ end
 
 function select_action(state)
     probs = agent.nnmodel(state)
-    dist = Categorical(probs)
+    dist = Categorical(softmax(probs))
     action = rand(dist)
     logprob = logpdf(dist, action)
     push!(agent.saved_log_probs, logprob)
@@ -233,6 +234,15 @@ function episodeloop(m::MatcherEnv, select_action, remember_reward; nsteps=100)
 end
 
 using Printf: @printf
+
+function status_callback(ep, epreward, runningreward)
+    testmode!(agent.nnmodel)
+    @printf("Episode %d current reward %f running reward %f\n", ep, epreward, runningreward)
+    println(softmax(agent.nnmodel([1.0,1.0,1.0,1.0,1.0])))
+    println(softmax(agent.nnmodel([1.0,1.0,0.0,0.0,0.0])))
+    testmode!(agent.nnmodel, false)
+end
+
 function trainloop(m::MatcherEnv, select_action, remember_reward, finish_episode; nsteps=100, nepisodes=10)
     runningreward = 0.0
     eprewards = Float32[]
@@ -245,7 +255,7 @@ function trainloop(m::MatcherEnv, select_action, remember_reward, finish_episode
         push!(eprewards, epreward)
         push!(runningrewards, runningreward)
         if ep % 10 == 0
-            @printf("Episode %d current reward %f running reward %f\n", ep, epreward, runningreward)
+            status_callback(ep, epreward, runningreward)
         end
     end
     eprewards, runningrewards
@@ -253,6 +263,6 @@ end
 
 env = ToyMatcherEnv()
 
-agent = MLPAgent(Chain(Dense(5, 128, relu), Dropout(0.6), Dense(128, 2), softmax))
+agent = MLPAgent(Chain(Dense(5, 128, relu), Dropout(0.6), Dense(128, 2)))
 plotweights(agent) = heatmap(collect(params(agent.nnmodel[1]))[1].data)
-(eprewards, runningrewards) = trainloop(env, select_action, remember_reward, finish_episode; nsteps=20, nepisodes=100)
+(eprewards, runningrewards) = trainloop(env, select_action, remember_reward, finish_episode; nsteps=40, nepisodes=1000)
