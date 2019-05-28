@@ -6,9 +6,9 @@ using GLPK
 using ParameterJuMP
 using Distributions
 using Plots
-feasible_sets = collect(Int64.(convert(Matrix, CSV.File("/Users/curry/src/julia_setpack/bloodTypeVectors.csv") |> DataFrame))')
-arrival_means = Float64[32.3250498, 21.26307068, 9.998228937, 2.540044521, 14.54586926, 9.568116614, 4.499078324, 1.142988355, 4.531473682, 2.980754732, 1.401597571, 0.356075086, 0.548292189, 0.360660715, 0.169588318, 0.043083818]
-departure_means = Float64[14.39983629, 7.932098763, 4.343646604, 0.73473771, 6.479746736, 3.569345515, 1.954586798, 0.330622806, 2.01863507, 1.111957971, 0.608912295, 0.102998901, 0.24424766, 0.134542957, 0.073676221, 0.0124625]
+const feasible_sets = collect(Int64.(convert(Matrix, CSV.File("/Users/curry/src/julia_setpack/bloodTypeVectors.csv") |> DataFrame))')
+const arrival_means = Float64[32.3250498, 21.26307068, 9.998228937, 2.540044521, 14.54586926, 9.568116614, 4.499078324, 1.142988355, 4.531473682, 2.980754732, 1.401597571, 0.356075086, 0.548292189, 0.360660715, 0.169588318, 0.043083818]
+const departure_means = Float64[14.39983629, 7.932098763, 4.343646604, 0.73473771, 6.479746736, 3.569345515, 1.954586798, 0.330622806, 2.01863507, 1.111957971, 0.608912295, 0.102998901, 0.24424766, 0.134542957, 0.073676221, 0.0124625]
 
 struct SetPackMatcher
     constraintparams::Array{ParameterRef}
@@ -161,108 +161,3 @@ function greedy_episodeloop(m::MatcherEnv; nsteps=100)
     println(endtime - starttime)
     episodereward
 end
-
-matcher = BloodTypeMatcherEnv(feasible_sets, arrival_means, departure_means)
-matcher = ToyMatcherEnv()
-using Distributions
-import Flux.params
-using Flux.Tracker: update!
-using Flux
-using Flux: testmode!
-
-mutable struct MLPAgent
-    nnmodel::Chain
-    opt::ADAM
-    rewards::Array{Float32}
-    saved_log_probs::Array{Tracker.TrackedReal}
-end
-
-MLPAgent(model) = MLPAgent(model, ADAM(0.01), Float32[], Tracker.TrackedReal[])
-
-function Distributions.isprobvec(p::TrackedArray)
-    sum(p).data ≈ 1.0
-end
-
-function select_action(state)
-    probs = agent.nnmodel(state)
-    dist = Categorical(softmax(probs))
-    action = rand(dist)
-    logprob = logpdf(dist, action)
-    push!(agent.saved_log_probs, logprob)
-    action - 1 # convert to 0/1
-end
-
-
-function remember_reward(reward)
-    push!(agent.rewards, reward)
-end
-
-function finish_episode(gamma=0.99)
-    # change gamma to be somewhere else later
-    returns = Float32[]
-    rr = 0.0
-    for r in agent.rewards[end:-1:1]
-        rr = r + gamma * rr
-        insert!(returns, 1, rr)
-    end
-    returns = (returns .- mean(returns)) ./ (std(returns) + eps())
-
-    # multiply returns and logprobs
-    grads = Tracker.gradient(() ->sum(-agent.saved_log_probs .* returns), params(agent.nnmodel))
-    for p in params(agent.nnmodel)
-        update!(agent.opt, p, grads[p])
-    end
-    empty!(agent.saved_log_probs)
-    empty!(agent.rewards)
-end
-
-function episodeloop(m::MatcherEnv, select_action, remember_reward; nsteps=100)
-    starttime = time()
-    state = reset!(m)
-    episodereward = 0.0
-    reward = 0.0
-    for step=1:nsteps
-        action = select_action(state)
-        state, reward, _ = step!(m, action)
-        episodereward += reward
-        remember_reward(reward)
-        #println(state)
-    end
-    endtime = time()
-    #println(endtime - starttime)
-    episodereward
-end
-
-using Printf: @printf
-
-function status_callback(ep, epreward, runningreward)
-    testmode!(agent.nnmodel)
-    @printf("Episode %d current reward %f running reward %f\n", ep, epreward, runningreward)
-    println(softmax(agent.nnmodel([1.0,1.0,1.0,1.0,1.0])))
-    println(softmax(agent.nnmodel([1.0,1.0,0.0,0.0,0.0])))
-    testmode!(agent.nnmodel, false)
-end
-
-function trainloop(m::MatcherEnv, select_action, remember_reward, finish_episode; nsteps=100, nepisodes=10)
-    runningreward = 0.0
-    eprewards = Float32[]
-    runningrewards = Float32[]
-
-    for ep=1:nepisodes
-        epreward = episodeloop(m, select_action, remember_reward; nsteps=nsteps)
-        finish_episode()
-        runningreward = 0.05 * epreward + (1 - 0.05) * runningreward
-        push!(eprewards, epreward)
-        push!(runningrewards, runningreward)
-        if ep % 10 == 0
-            status_callback(ep, epreward, runningreward)
-        end
-    end
-    eprewards, runningrewards
-end
-
-env = ToyMatcherEnv()
-
-agent = MLPAgent(Chain(Dense(5, 128, relu), Dropout(0.6), Dense(128, 2)))
-plotweights(agent) = heatmap(collect(params(agent.nnmodel[1]))[1].data)
-(eprewards, runningrewards) = trainloop(env, select_action, remember_reward, finish_episode; nsteps=40, nepisodes=1000)
