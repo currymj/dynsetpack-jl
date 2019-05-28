@@ -7,6 +7,12 @@ using Flux.Tracker: update!
 using Flux
 using Flux: testmode!
 
+struct GreedyAgent
+end
+select_action!(agent::GreedyAgent, state) = 1
+remember_reward!(agent::GreedyAgent, reward) = nothing
+finish_episode!(agent::GreedyAgent; gamma=0.99) = nothing
+
 mutable struct MLPAgent
     nnmodel::Chain
     opt::ADAM
@@ -14,8 +20,6 @@ mutable struct MLPAgent
     saved_log_probs::Array{Tracker.TrackedReal}
 end
 
-struct GreedyAgent
-end
 MLPAgent(model) = MLPAgent(model, ADAM(0.01), Float32[], Tracker.TrackedReal[])
 
 function Distributions.isprobvec(p::TrackedArray)
@@ -31,9 +35,9 @@ function select_action!(agent::MLPAgent, state)
     action - 1 # convert to 0/1
 end
 
-
 function remember_reward!(agent::MLPAgent, reward)
     push!(agent.rewards, reward)
+    nothing
 end
 
 function finish_episode!(agent::MLPAgent; gamma=0.99)
@@ -53,6 +57,7 @@ function finish_episode!(agent::MLPAgent; gamma=0.99)
     end
     empty!(agent.saved_log_probs)
     empty!(agent.rewards)
+    nothing
 end
 
 function episodeloop(m::MatcherEnv, agent; nsteps=100)
@@ -109,6 +114,15 @@ agent = MLPAgent(Chain(Dense(5, 128, relu), Dropout(0.6), Dense(128, 2)))
 plotweights(agent) = heatmap(collect(params(agent.nnmodel[1]))[1].data)
 (eprewards, runningrewards) = trainloop(env, agent; nsteps=40, nepisodes=1000, status_callback=print_probs)
 
+
+env = ToyMatcherEnv()
+agent = GreedyAgent()
+(eprewards, runningrewards) = trainloop(env, agent; nsteps=40, nepisodes=1000)
+
 env = BloodTypeMatcherEnv()
 agent = MLPAgent(Chain(Dense(16, 128, relu), Dropout(0.6), Dense(128, 2)))
-(eprewards, runningrewards) = trainloop(env, agent; nsteps=40, nepisodes=10)
+(eprewards, runningrewards) = trainloop(env, agent; nsteps=40, nepisodes=100)
+
+env = BloodTypeMatcherEnv()
+agent = GreedyAgent()
+(eprewards, runningrewards) = trainloop(env, agent; nsteps=40, nepisodes=100)
