@@ -58,6 +58,10 @@ function BloodTypeMatcherEnv(feasible_sets::Array{Int64, 2}, daily_arrival_means
     BloodTypeMatcherEnv(initstate, Poisson.(daily_arrival_means), Poisson.(daily_departure_means), matcher)
 end
 
+function BloodTypeMatcherEnv()
+    BloodTypeMatcherEnv(feasible_sets, arrival_means, departure_means)
+end
+
 state(m::BloodTypeMatcherEnv) = m.state
 
 mutable struct ToyMatcherEnv <: MatcherEnv
