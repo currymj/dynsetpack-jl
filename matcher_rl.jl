@@ -13,7 +13,7 @@ select_action!(agent::GreedyAgent, state) = 1
 remember_reward!(agent::GreedyAgent, reward) = nothing
 finish_episode!(agent::GreedyAgent; gamma=0.99) = nothing
 test!(agent::GreedyAgent, status=true) = nothing
-reset!(agent::GreedyAgent) = nothing
+clear_history!(agent::GreedyAgent) = nothing
 
 mutable struct MLPAgent
     nnmodel::Chain
@@ -42,7 +42,7 @@ function remember_reward!(agent::MLPAgent, reward)
     nothing
 end
 
-function reset!(agent::MLPAgent)
+function clear_history!(agent::MLPAgent)
     empty!(agent.saved_log_probs)
     empty!(agent.rewards)
     nothing
@@ -67,7 +67,7 @@ function finish_episode!(agent::MLPAgent; gamma=0.99)
     for p in params(agent.nnmodel)
         update!(agent.opt, p, grads[p])
     end
-    reset!(agent)
+    clear_history!(agent)
 end
 
 function episodeloop(m::MatcherEnv, agent; nsteps=100)
@@ -101,7 +101,7 @@ function evalepisode(m::MatcherEnv, agent; nsteps=100)
     end
     endtime = time()
     #println(endtime - starttime)
-    reset!(agent)
+    clear_history!(agent)
     test!(agent, false)
     episodereward
 end
