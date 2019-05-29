@@ -5,13 +5,15 @@ using Distributions
 import Flux.params
 using Flux.Tracker: update!
 using Flux
-using Flux: testmode!
+import Flux.testmode!
 
 struct GreedyAgent
 end
 select_action!(agent::GreedyAgent, state) = 1
 remember_reward!(agent::GreedyAgent, reward) = nothing
 finish_episode!(agent::GreedyAgent; gamma=0.99) = nothing
+test!(agent::GreedyAgent, status=true) = nothing
+reset!(agent::GreedyAgent) = nothing
 
 mutable struct MLPAgent
     nnmodel::Chain
@@ -40,6 +42,16 @@ function remember_reward!(agent::MLPAgent, reward)
     nothing
 end
 
+function reset!(agent::MLPAgent)
+    empty!(agent.saved_log_probs)
+    empty!(agent.rewards)
+    nothing
+end
+
+function test!(agent::MLPAgent, status=true)
+    testmode!(agent.nnmodel, status)
+end
+
 function finish_episode!(agent::MLPAgent; gamma=0.99)
     # change gamma to be somewhere else later
     returns = Float32[]
@@ -55,9 +67,7 @@ function finish_episode!(agent::MLPAgent; gamma=0.99)
     for p in params(agent.nnmodel)
         update!(agent.opt, p, grads[p])
     end
-    empty!(agent.saved_log_probs)
-    empty!(agent.rewards)
-    nothing
+    reset!(agent)
 end
 
 function episodeloop(m::MatcherEnv, agent; nsteps=100)
@@ -74,6 +84,25 @@ function episodeloop(m::MatcherEnv, agent; nsteps=100)
     end
     endtime = time()
     #println(endtime - starttime)
+    episodereward
+end
+
+function evalepisode(m::MatcherEnv, agent; nsteps=100)
+    test!(agent, true)
+    starttime = time()
+    state = reset!(m)
+    episodereward = 0.0
+    reward = 0.0
+    for step=1:nsteps
+        action = select_action!(agent, state)
+        state, reward, _ = step!(m, action)
+        episodereward += reward
+        #println(state)
+    end
+    endtime = time()
+    #println(endtime - starttime)
+    reset!(agent)
+    test!(agent, false)
     episodereward
 end
 
@@ -113,11 +142,12 @@ env = ToyMatcherEnv()
 agent = MLPAgent(Chain(Dense(5, 128, relu), Dropout(0.6), Dense(128, 2)))
 plotweights(agent) = heatmap(collect(params(agent.nnmodel[1]))[1].data)
 (eprewards, runningrewards) = trainloop(env, agent; nsteps=40, nepisodes=1000, status_callback=print_probs)
-
+test_rewards = [evalepisode(env, agent; nsteps=40) for i=1:20]
 
 env = ToyMatcherEnv()
 agent = GreedyAgent()
 (eprewards, runningrewards) = trainloop(env, agent; nsteps=40, nepisodes=1000)
+test_rewards = [evalepisode(env, agent; nsteps=40) for i=1:20]
 
 env = BloodTypeMatcherEnv()
 agent = MLPAgent(Chain(Dense(16, 128, relu), Dropout(0.6), Dense(128, 2)))
