@@ -117,20 +117,3 @@ function step!(m::MatcherEnv, action)
     _arrive_and_depart!(m)
     (state(m), reward, false)
 end
-
-greedypolicy(state) = 1
-function greedy_episodeloop(m::MatcherEnv; nsteps=100)
-    starttime = time()
-    state = reset!(m)
-    episodereward = 0.0
-    reward = 0.0
-    for step=1:nsteps
-        action = greedypolicy(state)
-        state, reward, _ = step!(m, action)
-        episodereward += reward
-        #println(state)
-    end
-    endtime = time()
-    println(endtime - starttime)
-    episodereward
-end
