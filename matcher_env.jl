@@ -5,11 +5,29 @@ using Distributions
 using Plots
 include("./matcher.jl")
 
-const feasible_sets = collect(Int64.(convert(Matrix, CSV.File("/Users/curry/src/julia_setpack/bloodTypeVectors.csv") |> DataFrame))')
-const arrival_means = Float64[32.3250498, 21.26307068, 9.998228937, 2.540044521, 14.54586926, 9.568116614, 4.499078324, 1.142988355, 4.531473682, 2.980754732, 1.401597571, 0.356075086, 0.548292189, 0.360660715, 0.169588318, 0.043083818]
-const departure_means = Float64[14.39983629, 7.932098763, 4.343646604, 0.73473771, 6.479746736, 3.569345515, 1.954586798, 0.330622806, 2.01863507, 1.111957971, 0.608912295, 0.102998901, 0.24424766, 0.134542957, 0.073676221, 0.0124625]
-
 abstract type MatcherEnv end
+
+include("./gencycles.jl")
+mutable struct RandomObservableMatcherEnv <: MatcherEnv
+    state::Array{Float32}
+    to_depart::Array{Float32}
+    arrival_p::Float64
+    departure_p::Float64
+    matcher::SetPackMatcher
+    function RandomObservableMatcherEnv(n_types, n_twocycle, n_threecycle, arrive_prob, depart_prob)
+        feasible_sets = hcat(
+            twocycles(n_types; n_generate=n_twocycle),
+            threecycles(n_types; n_generate=n_threecycle))
+
+        initstate = zeros(Float32, n_types)
+        matcher = SetPackMatcher(feasible_sets)
+        initdepart = zeros(Float32, n_types)
+        new(initstate, initdepart, arrive_prob, depart_prob, matcher)
+    end
+end
+
+state(m::RandomObservableMatcherEnv) = m.state
+
 
 mutable struct BloodTypeMatcherEnv <: MatcherEnv
     state::Array{Float32}
@@ -17,6 +35,10 @@ mutable struct BloodTypeMatcherEnv <: MatcherEnv
     daily_departure_dists::Array{Poisson}
     matcher::SetPackMatcher
 end
+
+const feasible_sets = collect(Int64.(convert(Matrix, CSV.File("/Users/curry/src/julia_setpack/bloodTypeVectors.csv") |> DataFrame))')
+const arrival_means = Float64[32.3250498, 21.26307068, 9.998228937, 2.540044521, 14.54586926, 9.568116614, 4.499078324, 1.142988355, 4.531473682, 2.980754732, 1.401597571, 0.356075086, 0.548292189, 0.360660715, 0.169588318, 0.043083818]
+const departure_means = Float64[14.39983629, 7.932098763, 4.343646604, 0.73473771, 6.479746736, 3.569345515, 1.954586798, 0.330622806, 2.01863507, 1.111957971, 0.608912295, 0.102998901, 0.24424766, 0.134542957, 0.073676221, 0.0124625]
 
 function BloodTypeMatcherEnv(feasible_sets::Array{Int64, 2}, daily_arrival_means, daily_departure_means)
     n_types = size(feasible_sets, 1)
@@ -53,20 +75,23 @@ end
 
 function reset!(m::ToyMatcherEnv)
     m.time_step = 0
-    m.state .= zeros(size(m.state))
+    m.state .= 0
     m.state
 end
 
 function reset!(m::BloodTypeMatcherEnv)
-    m.state .= zeros(size(m.state))
+    m.state .= 0
     m.state
 end
 
-function _perform_match(m::BloodTypeMatcherEnv)
-    perform_match(m.matcher, m.state)
+function reset!(m::RandomObservableMatcherEnv)
+    m.state .= 0
+    m.to_depart .= 0
+    m.state
 end
 
-function _perform_match(m::ToyMatcherEnv)
+
+function _perform_match(m::MatcherEnv)
     perform_match(m.matcher, m.state)
 end
 
@@ -94,14 +119,20 @@ function _arrive_and_depart!(m::BloodTypeMatcherEnv)
     end
 end
 
-function _run_match!(m::BloodTypeMatcherEnv, match)
-    total_match = m.matcher.feasible_sets * match
-    match_card = sum(total_match)
-    m.state .-= total_match
-    match_card
+function _arrive_and_depart!(m::RandomObservableMatcherEnv)
+    coinflip = Bernoulli(m.arrival_p)
+    for i=1:length(m.state)
+        m.state[i] += convert(Float32, rand(coinflip))
+        m.state[i] -= m.to_depart[i]
+        m.to_depart[i] = 0
+        if m.state[i] < 0
+            m.state[i] = 0
+        end
+        m.to_depart[i] = rand(Binomial(convert(Int64, m.state[i]), m.departure_p))
+    end
 end
 
-function _run_match!(m::ToyMatcherEnv, match)
+function _run_match!(m::MatcherEnv, match)
     total_match = m.matcher.feasible_sets * match
     match_card = sum(total_match)
     m.state .-= total_match
