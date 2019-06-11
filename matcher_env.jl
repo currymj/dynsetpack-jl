@@ -14,7 +14,8 @@ mutable struct RandomObservableMatcherEnv <: MatcherEnv
     arrival_p::Float64
     departure_p::Float64
     matcher::SetPackMatcher
-    function RandomObservableMatcherEnv(n_types, n_twocycle, n_threecycle, arrive_prob, depart_prob)
+    showdepart::Bool
+    function RandomObservableMatcherEnv(n_types, n_twocycle, n_threecycle, arrive_prob, depart_prob, showdepart)
         feasible_sets = hcat(
             twocycles(n_types; n_generate=n_twocycle),
             threecycles(n_types; n_generate=n_threecycle))
@@ -22,12 +23,12 @@ mutable struct RandomObservableMatcherEnv <: MatcherEnv
         initstate = zeros(Float32, n_types)
         matcher = SetPackMatcher(feasible_sets)
         initdepart = zeros(Float32, n_types)
-        new(initstate, initdepart, arrive_prob, depart_prob, matcher)
+        new(initstate, initdepart, arrive_prob, depart_prob, matcher, showdepart)
     end
 end
 
-function state(m::RandomObservableMatcherEnv; showdepart=false)
-    if showdepart
+function state(m::RandomObservableMatcherEnv)
+    if m.showdepart
         vcat(m.state, m.to_depart)
     else
         m.state
@@ -82,18 +83,18 @@ end
 function reset!(m::ToyMatcherEnv)
     m.time_step = 0
     m.state .= 0
-    m.state
+    state(m)
 end
 
 function reset!(m::BloodTypeMatcherEnv)
     m.state .= 0
-    m.state
+    state(m)
 end
 
 function reset!(m::RandomObservableMatcherEnv)
     m.state .= 0
     m.to_depart .= 0
-    m.state
+    state(m)
 end
 
 

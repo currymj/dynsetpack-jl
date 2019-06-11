@@ -19,10 +19,14 @@ env = BloodTypeMatcherEnv()
 agent = GreedyAgent()
 (eprewards, runningrewards) = trainloop(env, agent; nsteps=40, nepisodes=100)
 
-env = RandomObservableMatcherEnv(10, 100,100,0.2,0.05)
+env = RandomObservableMatcherEnv(10, 100,100,0.2,0.05, false)
 agent = GreedyAgent()
 (eprewards, runningrewards) = trainloop(env, agent; nsteps=40, nepisodes=100)
 
-env = RandomObservableMatcherEnv(10, 100,100,0.2,0.05)
+env = RandomObservableMatcherEnv(10, 100,100,0.2,0.05, false)
 agent = MLPAgent(Chain(Dense(10, 128, relu), Dropout(0.6), Dense(128, 2)))
+(eprewards, runningrewards) = trainloop(env, agent; nsteps=40, nepisodes=100)
+
+env = RandomObservableMatcherEnv(10, 100,100,0.2,0.05, true)
+agent = MLPAgent(Chain(Dense(20, 128, relu), Dropout(0.6), Dense(128, 2)))
 (eprewards, runningrewards) = trainloop(env, agent; nsteps=40, nepisodes=100)
