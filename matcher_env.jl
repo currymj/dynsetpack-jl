@@ -26,7 +26,13 @@ mutable struct RandomObservableMatcherEnv <: MatcherEnv
     end
 end
 
-state(m::RandomObservableMatcherEnv) = m.state
+function state(m::RandomObservableMatcherEnv; showdepart=false)
+    if showdepart
+        vcat(m.state, m.to_depart)
+    else
+        m.state
+    end
+end
 
 
 mutable struct BloodTypeMatcherEnv <: MatcherEnv
